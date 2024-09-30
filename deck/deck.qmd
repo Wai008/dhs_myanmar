@@ -1,0 +1,888 @@
+---
+title: "Contraceptive Knowledge, Practice & Unmet Need in Myanmar"
+author: Hnin Thuzar Lwin & Wai Linn
+format: 
+  revealjs:
+    theme: simple
+    title-slide-attributes:
+      data-background-image: "https://blog.venturas.com.br/wp-content/uploads/2018/03/168301-turismo-em-myanmar-o-que-nao-pode-faltar-no-seu-roteiro.jpg"
+      data-background-size: 100%
+      data-background-opacity: "0.5"
+    date: today
+---
+
+
+```{r}
+# loading required packages
+
+library(tidyverse)
+library(shiny)
+library(bslib)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(modelsummary)
+```
+
+```{r}
+# Creating dataframe for mapping
+
+world <- ne_countries(returnclass = "sf")
+myanmar <- ne_states(country = "Myanmar", returnclass = "sf")
+```
+
+## Myanmar located in Southeast Asia
+
+Home to longest civil war in the world from 1962 to present day (Why...?)
+
+```{r}
+world_mm_map <- world %>%
+  mutate(myanmar = case_when(
+    name_long == "Myanmar" ~ 1,
+    TRUE ~ 0
+  )) %>% 
+  ggplot(aes(fill = factor(myanmar))) +
+  geom_sf() +
+  scale_fill_manual(values = c("0" = "gray", "1" = "red")) + 
+  theme_minimal() +
+  theme(legend.position = "none")
+
+world_mm_map
+```
+
+```{r}
+# Administratively, 7 states and 7 regions
+
+mm_map1 <- myanmar %>% 
+  ggplot()+
+  geom_sf(aes(fill = name, color = name)) +
+  geom_sf_text(aes(label = name), size = 2.5) +
+  theme_void() +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+# Dividing into two groups
+
+region_colors <- c(
+  "Ayeyarwady" = "green",
+  "Bago" = "green",
+  "Chin" = "red",
+  "Kachin" = "red",
+  "Kayah" = "red",
+  "Kayin" = "red",
+  "Magway" = "green",
+  "Mandalay" = "green",
+  "Mon" = "red",
+  "Rakhine" = "red",
+  "Sagaing" = "green",
+  "Shan" = "red",
+  "Tanintharyi" = "green",
+  "Yangon" = "green"
+)
+
+mm_map2 <- myanmar %>% 
+  mutate(ethnicity = ifelse(name %in% c("Kachin", "Kayah", "Kayin", "Kachin", "Chin", "Mon", "Rakhine", "Shan"), "State", "Region")) %>% 
+  ggplot() +
+  geom_sf(data = myanmar, aes(fill = name)) + 
+  scale_fill_manual(values = region_colors) + 
+  geom_sf_text(aes(label = ethnicity), size = 2) +
+  theme_void() +
+  theme(legend.position = "none")
+```
+
+## Demographics
+
+::: aside
+-   52 million population with \~ 135 ethnic groups. Has 7 states and 7 regions.
+-   "Bamar" in regions and "\>100 ethnic groups" in states
+:::
+
+```{r}
+mm_map1
+```
+
+## Ethnicity
+
+::: aside
+-   52 million population with \~ 135 ethnic groups. Has 7 states and 7 regions.
+-   "Bamar" in regions and "\>100 ethnic groups" in states
+:::
+
+```{r}
+mm_map2
+```
+
+## Research Question
+
+::: incremental
+-   How do demographic characteristics influence contraceptive knowledge, practices and unmet need among currently married women aged 15-49 in Myanmar?
+
+-   Are there any contraceptive disparities between States and Regions?
+
+-   Bonus info: What are the *most used contraceptive methods*?
+:::
+
+## Dataset
+
+DHS Myanmar dataset 2016
+
+-   7870 observations and 26 variables
+-   All participants are currently married women aged 15-49
+
+Key variables:
+
+-   Demographic characteristics: age (5-yr group), location (region/state), residence (urban/rural), education, wealth index
+
+-   Outcome: contraceptive knowledge, practice, unmet need
+
+```{r}
+# Required packages for survey weight calculation
+
+library(haven)
+library(survey)
+library(patchwork)
+```
+
+```{r}
+
+# DHS Myanmar dataset 2016
+
+dhs_mm <- read_csv(here::here("data", "dhs_mm.csv"))
+```
+
+```{r}
+# Variable selection based on research question
+
+dhs_select <- dhs_mm %>% 
+  select(caseid, v005, v013, v021, v023, v024, v025, v106, v190, v301, v312, v313, v502, v626a)
+```
+
+```{r}
+# Creating new and modifying existing variables  
+
+dhs_final <- dhs_select %>% 
+  mutate(wt = v005/1000000,
+         psu = v021,
+         strat = v023) %>% # sampling weight
+  filter(v502 == 1) %>% # current married women
+  mutate(
+    age = case_when(
+      v013 == 1 ~ "15-19",
+      v013 == 2 ~ "20-24",
+      v013 == 3 ~ "25-29",
+      v013 == 4 ~ "30-34",
+      v013 == 5 ~ "35-39",
+      v013 == 6 ~ "40-44",
+      v013 == 7 ~ "45-49"
+    ),
+    location = case_when(
+      v024 == 1 ~ "Kachin",
+      v024 == 2 ~ "Kayah",
+      v024 == 3 ~ "Kayin",
+      v024 == 4 ~ "Chin",
+      v024 == 5 ~ "Sagaing",
+      v024 == 6 ~ "Tanintharyi",
+      v024 == 7 ~ "Bago",
+      v024 == 8 ~ "Magway",
+      v024 == 9 ~ "Mandalay",
+      v024 == 10 ~ "Mon",
+      v024 == 11 ~ "Rakhine",
+      v024 == 12 ~ "Yangon",
+      v024 == 13 ~ "Shan",
+      v024 == 14 ~ "Ayeyarwady",
+      v024 == 15 ~ "Naypyitaw"
+    ),
+    residence = case_when(
+      v025 == 1 ~ "urban",
+      v025 == 2 ~ "rural"
+    ),
+    education = case_when(
+      v106 == 0 ~ "no education",
+      v106 == 1 ~ "primary",
+      v106 == 2 ~ "secondary",
+      v106 == 3 ~ "higher"
+    ),
+    wealth_index = case_when(
+      v190 == 1 ~ "poorest",
+      v190 == 2 ~ "poorer",
+      v190 == 3 ~ "middle",
+      v190 == 4 ~ "richer",
+      v190 == 5 ~ "richest"
+    ),
+    method = case_when(
+      v312 == 0 ~ "no_use",
+      v312 == 1 ~ "pill",
+      v312 == 2 ~ "IUD",
+      v312 == 3 ~ "injection",
+      v312 == 5 ~ "male_condom",
+      v312 == 6 ~ "female_sterilization",
+      v312 == 7 ~ "male_sterilization",
+      v312 == 8 ~ "periodic_abstinence",
+      v312 == 9 ~ "withdrawal",
+      v312 == 10 ~ "other_traditional",
+      v312 == 11 ~ "implant",
+      v312 == 13 ~ "lac_amenorrhoea",
+      v312 == 17 ~ "other_modern")
+  ) %>% 
+  mutate(
+    knowledge = ifelse(v301 %in% c(3,2), 1, 0),
+    practice = ifelse(v313 %in% c(3,2,1), 1,0),
+    location_bi = ifelse(v024 %in% c(1, 2, 3, 4, 10, 11 & 13), 0, 1)
+  ) %>% 
+  mutate(
+    location_bi = case_when(
+      location_bi == 0 ~ "state",
+      location_bi == 1 ~ "region"
+    )
+  ) %>% 
+  mutate(knowledge = factor(knowledge),
+         practice = factor(practice))
+```
+
+```{r}
+# releveling variable categories
+
+dhs_final$education <- relevel(factor(dhs_final$education), ref = "no education")
+
+dhs_final$age <- relevel(factor(dhs_final$age), ref = "30-34")
+
+dhs_final$location_bi <- relevel(factor(dhs_final$location_bi), ref = "state")
+
+dhs_final$residence <- relevel(factor(dhs_final$residence), ref = "rural")
+
+dhs_final$wealth_index <- relevel(factor(dhs_final$wealth_index), ref = "poorest")
+
+```
+
+```{r}
+# Survey weight 
+
+mysurvey <- svydesign(ids = ~psu, strata = ~strat, weights =~wt, data = dhs_final)  
+```
+
+## Contraceptive Knowledge
+
+```{r}
+# Knowledge by age and education data
+
+know_ae <- svyby(
+  ~knowledge,
+  by = ~age + education,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+# Knowledge by age and education plot
+
+kae_plot <- know_ae %>%
+  mutate(education = factor(education, levels = c("no education", "primary", "secondary", "higher"))) %>%
+  ggplot(aes(x = age, y = knowledge1, color = education, group = education)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~education, ncol = 4) +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Age Groups", y= "Knowledge Proportion", title = "Younger women with lower education have lesser knowledge", subtitle = "Knowledge stratified by age & education") +
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(face = "bold"))
+
+
+# Knowledge by location, residence and wealth index data
+
+know_lrw <- svyby(
+  ~knowledge ,
+  by = ~location_bi + residence + wealth_index,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+# Knowledge by location, residence and wealth index plot
+klrw_plot <- know_lrw %>%
+  mutate(wealth_index = factor(wealth_index, levels = c("poorest", "poorer", "middle", "richer", "richest"))) %>%
+  ggplot(aes(x = location_bi, y = knowledge1, color = fct_reorder2(residence, location_bi, knowledge1), group = residence)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~wealth_index, ncol = 5) +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Location", y= "Knowledge Proportion", color = "Residence", title = "Women who are poor & from rural have lesser knowledge", subtitle = "Knowledge stratified by location, residence & wealth") +
+  theme_minimal()+
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+```
+
+::: panel-tabset
+### age & education
+
+```{r}
+kae_plot
+```
+
+### location, residence & wealth index
+
+```{r}
+klrw_plot
+```
+:::
+
+## Contraceptive Practice
+
+```{r}
+
+# Practice by age and education data
+
+prac_ae <- svyby(
+  ~practice,
+  by = ~age + education,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+# Practice by age and education plot
+
+pae_plot <- prac_ae %>%
+  mutate(education = factor(education, levels = c("no education", "primary", "secondary", "higher"))) %>%
+  ggplot(aes(x = age, y = practice1, color = education, group = education)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~education, ncol = 4) +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Age Groups", y= "Practice Proportion", title = "Younger and older women with lower education have lesser contraceptive use", subtitle = "Practice stratified by age & education") +
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(face = "bold"))
+
+
+# Practice by location, residence and wealth index data
+
+prac_lrw <- svyby(
+  ~practice ,
+  by = ~location_bi + residence + wealth_index,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+# Practice by location, residence and wealth index plot
+plrw_plot <- prac_lrw %>%
+  mutate(wealth_index = factor(wealth_index, levels = c("poorest", "poorer", "middle", "richer", "richest"))) %>%
+  ggplot(aes(x = location_bi, y = practice1, color = fct_reorder2(residence, location_bi, practice1), group = residence)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~wealth_index, ncol = 5) +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Location", y= "Practice Proportion", color = "Residence", title = "Poorer women from state and rural have lesser contraceptive use", subtitle = "Practice stratified by location, residence & wealth") +
+  theme_minimal()+
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+
+```
+
+::: panel-tabset
+### age & education
+
+```{r}
+pae_plot
+```
+
+### location, residence & wealth index
+
+```{r}
+plrw_plot
+```
+:::
+
+## Contraceptive unmet need
+
+```{r}
+# To filter only unmet and met need from total cohort which includes no unmet need, never had sex ... check details in data dictionary
+
+dhs_unmet <- dhs_final %>% 
+  filter(v626a %in% c(1,2,3,4)) %>% 
+  mutate(unmet_need = ifelse(v626a %in% c(1,2), 1, 0)) %>% 
+  mutate(unmet_need = factor(unmet_need))
+```
+
+```{r}
+# another survey weight for unmet need because of dataset changes
+
+mysurvey2 <- svydesign(ids = ~psu, strata = ~strat, weights =~wt, data = dhs_unmet)  
+```
+
+```{r}
+unmet_ae <- svyby(
+  ~unmet_need,
+  by = ~age + education, # age & education stratification
+  design = mysurvey2,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+uae_plot <- unmet_ae %>%
+  mutate(education = factor(education, levels = c("no education", "primary", "secondary", "higher"))) %>%
+  ggplot(aes(x = age, y = unmet_need1, color = education, group = education)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~education, ncol = 4) +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Age Group", y= "Contraceptive Unmet Need", title = "Younger and older women with lower education have higher unmet need", subtitle = "Unmet need stratified by age & education") +
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(face = "bold"))
+```
+
+```{r}
+
+# Unmet need (location, Residence, Wealth Index)
+
+unmet_lrw <- svyby(
+  ~unmet_need ,
+  by = ~location_bi + residence + wealth_index,
+  design = mysurvey2,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+ulrw_plot <- unmet_lrw %>%
+  mutate(wealth_index = factor(wealth_index, levels = c("poorest", "poorer", "middle", "richer", "richest"))) %>%
+  ggplot(aes(x = location_bi, y = unmet_need1, color = fct_reorder2(residence, location_bi, unmet_need1), group = residence)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~wealth_index, ncol = 5) +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Location", y= "Unmet Need Proportion", color = "Residence", title = "Poorer women from state and rural have more unmet need contraception", subtitle = "Unmet need stratified by location, residence & wealth") +
+  theme_minimal()+
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+
+```
+
+::: panel-tabset
+### age & education
+
+```{r}
+uae_plot
+```
+
+### location, residence & wealth index
+
+```{r}
+ulrw_plot
+```
+:::
+
+## State and Region Comparison
+
+```{r}
+# Contraceptive knowledge by age and location
+
+local_ka <- svyby(
+  ~knowledge,
+  by = ~ age + location_bi,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+# Contraceptive knowledge by education and location
+
+local_ke <- svyby(
+  ~knowledge ,
+  by = ~ education + location_bi,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+# Contraceptive knowledge by residence and location
+local_kr <- svyby(
+  ~knowledge ,
+  by = ~ residence + location_bi,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+# Contraceptive knowledge by wealth index and location
+local_kw <- svyby(
+  ~knowledge ,
+  by = ~ wealth_index + location_bi,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+# knowledge by age and location
+
+kal_plot <- local_ka %>%
+  ggplot(aes(x = age, y = knowledge1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0.92, 1), 
+                     breaks = seq(0.92, 1, by = 0.02)) +
+  labs(x = "Age Group", y= "Knowledge")+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+# knowledge by education and location
+
+kel_plot <- local_ke %>%
+  mutate(education = factor(education, levels = c("no education", "primary", "secondary", "higher"))) %>%
+  ggplot(aes(x = education, y = knowledge1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = lm) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0.92, 1.03), 
+                     breaks = seq(0.92, 1.03, by = 0.02)) +
+  labs(x = "Education", y= NULL)+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+
+# knowledge by residence and location
+
+krl_plot <- local_kr %>%
+  ggplot(aes(x = residence, y = knowledge1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = lm) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0.92, 1.03), 
+                     breaks = seq(0.92, 1.03, by = 0.02)) +
+  labs(x = "Residence", y= "Knowledge")+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+
+# knowledge by wealth index and location
+
+kwl_plot <- local_kw %>%
+  mutate(wealth_index = factor(wealth_index, levels = c("poorest", "poorer", "middle", "richer", "richest"))) %>%
+  ggplot(aes(x = wealth_index, y = knowledge1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = lm) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0.92, 1.03), 
+                     breaks = seq(0.92, 1.03, by = 0.02)) +
+  labs(x = "Wealth Index", y= NULL)+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+# Contraceptive practice by age and location
+
+local_pa <- svyby(
+  ~practice ,
+  by = ~ age + location_bi,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+# Contraceptive practice by education and location
+
+local_pe <- svyby(
+  ~practice ,
+  by = ~ education + location_bi,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+# Contraceptive practice by residence and location
+local_pr <- svyby(
+  ~practice ,
+  by = ~ residence + location_bi,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+# Contraceptive practice by wealth index and location
+local_pw <- svyby(
+  ~practice ,
+  by = ~ wealth_index + location_bi,
+  design = mysurvey,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+# Practice by age and location
+
+pal_plot <- local_pa %>%
+  ggplot(aes(x = age, y = practice1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0.25, 0.7), 
+                     breaks = seq(0.25, 0.7, by = 0.1)) +
+  labs(x = "Age Group", y= "Practice")+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# practice by education and location
+
+pel_plot <- local_pe %>%
+  mutate(education = factor(education, levels = c("no education", "primary", "secondary", "higher"))) %>%
+  ggplot(aes(x = education, y = practice1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = lm) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0.25, 0.7), 
+                     breaks = seq(0.25, 0.7, by = 0.1)) +
+  labs(x = "Education", y= NULL)+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+  
+
+# practice by residence and location
+
+prl_plot <- local_pr %>%
+  ggplot(aes(x = residence, y = practice1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = lm) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0.25, 0.7), 
+                     breaks = seq(0.25, 0.7, by = 0.1)) +
+  labs(x = "Residence", y= "Practice")+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+
+# practice by wealth index and location
+
+pwl_plot <- local_pw %>%
+  mutate(wealth_index = factor(wealth_index, levels = c("poorest", "poorer", "middle", "richer", "richest"))) %>%
+  ggplot(aes(x = wealth_index, y = practice1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = lm) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0.25, 0.7), 
+                     breaks = seq(0.25, 0.7, by = 0.1)) +
+  labs(x = "Wealth Index", y= NULL)+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+# Contraceptive unmet need by age and location
+
+local_ua <- svyby(
+  ~unmet_need ,
+  by = ~ age + location_bi,
+  design = mysurvey2,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+# Contraceptive unmet need by education and location
+
+local_ue <- svyby(
+  ~unmet_need ,
+  by = ~ education + location_bi,
+  design = mysurvey2,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+# Contraceptive unmet need by residence and location
+local_ur <- svyby(
+  ~unmet_need ,
+  by = ~ residence + location_bi,
+  design = mysurvey2,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+# Contraceptive unmet need by wealth index and location
+local_uw <- svyby(
+  ~unmet_need ,
+  by = ~ wealth_index + location_bi,
+  design = mysurvey2,
+  FUN = svymean,
+  vartype = c("se", "ci")
+)
+
+
+# Unmet need by age and location
+
+ual_plot <- local_ua %>%
+  ggplot(aes(x = age, y = unmet_need1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0, 0.6), 
+                     breaks = seq(0, 0.6, by = 0.1)) +
+  labs(x = "Age Group", y= "Unmet Need")+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+# unmet need by education and location
+
+uel_plot <- local_ue %>%
+  mutate(education = factor(education, levels = c("no education", "primary", "secondary", "higher"))) %>%
+  ggplot(aes(x = education, y = unmet_need1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = lm) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0, 0.6), 
+                     breaks = seq(0, 0.6, by = 0.1)) +
+  labs(x = "Education", y= NULL)+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+
+# unmet need by residence and location
+
+url_plot <- local_ur %>%
+  ggplot(aes(x = residence, y = unmet_need1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = lm) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0, 0.6), 
+                     breaks = seq(0, 0.6, by = 0.1)) +
+  labs(x = "Residence", y= "Unmet Need")+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+
+# practice by wealth index and location
+
+uwl_plot <- local_uw %>%
+  mutate(wealth_index = factor(wealth_index, levels = c("poorest", "poorer", "middle", "richer", "richest"))) %>%
+  ggplot(aes(x = wealth_index, y = unmet_need1, color = location_bi, group = location_bi)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = lm) +
+  facet_wrap(~location_bi) +
+  scale_color_brewer(palette = "Set1")+
+  scale_y_continuous(labels = scales::percent_format(scale = 100), 
+                     limits = c(0, 0.6), 
+                     breaks = seq(0, 0.6, by = 0.1)) +
+  labs(x = "Wealth Index", y= NULL)+
+  theme_minimal()+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+::: panel-tabset
+### knowledge
+
+```{r}
+knowledge_plots <- kal_plot + kel_plot + krl_plot + kwl_plot + plot_annotation(title = "Knowledge level more or less the same between state and region")
+knowledge_plots
+```
+
+### practice
+
+```{r}
+practice_plots <- pal_plot + pel_plot + prl_plot + pwl_plot + plot_annotation(title = "Lower contraceptive use in states across all demographics")
+practice_plots
+```
+
+### unmet need
+
+```{r}
+unmet_plots <- ual_plot + uel_plot + url_plot + uwl_plot + plot_annotation(title = "Higher contraceptive unmet need in states across all demographics")
+unmet_plots
+```
+:::
+
+## Common contraceptive methods
+
+```{r}
+# bonus info
+
+method_use <- dhs_final %>%
+  filter(method != "no_use") %>%
+  count(method) %>%
+  mutate(proportion = round(n / sum(n), 3)) %>%
+  mutate(method = reorder(method, proportion)) %>%
+  ggplot(aes(x = method, y = proportion)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 0.2) +  
+  geom_point(color = "red", size = 2, shape = 8, fill = "maroon") + 
+  geom_text(aes(label = scales::percent(proportion)), hjust = -0.2, color = "black", size = 3) +
+  labs(title = "Contraceptive methods being used in Myanmar", subtitle = "Injection and pill methods are popular among all available options", caption = "Bonus info",
+       x = "Methods",
+       y = "Proportion of Usage") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100),  limits = c(0, 0.6))+
+  theme(plot.title = element_text(size = 11, face = "bold")) +
+  coord_flip()
+
+method_use
+```
+
+## Multivariate regression analysis
+
+::: panel-tabset
+### Regression model
+
+```{r}
+#| echo: true
+models <- list(
+  "practice" = svyglm(practice ~ location_bi + residence + age + education + wealth_index, design = mysurvey, family = binomial(link = "logit")),
+  "unmet_need" = svyglm(unmet_need ~ location_bi + residence + age + education + wealth_index, design = mysurvey2, family = binomial(link = "logit"))
+)
+
+
+model_summary <- modelsummary(models, exponentiate = TRUE, coef_rename = c("location_biregion" = "region", "residenceurban" = "urban", "educationhigher" = "edu_higher", "educationprimary" = "edu_primary", "educationsecondary" = "edu_secondary", "wealth_indexmiddle" = "wealth_middle", "wealth_indexpoorer" = "wealth_poorer", "wealth_indexricher" = "wealth_richer", "wealth_indexrichest" = "wealth_richest"), statistic = NULL, output = "flextable")
+
+# note: since level of contraceptive knowledge has no significant difference between state and region, we skipped fitting regression model for knowledge differences.
+```
+
+### Outputs
+
+```{r}
+model_summary
+
+```
+:::
+
+## Key messages
+
+::: incremental
+1.  Is it true that there are health inequities between states and regions?
+
+-   The answer is **YES**.
+
+2.  Why and How can we address this issue?
+
+-   I suppose this is what the scholars have to find out.
+
+3.  **Global health** is an area for study, research, and practice that places a priority on improving health and achieving *equity in health* for all people worldwide.
+:::
+
+::: {style="text-align: center; display: flex; justify-content: center; align-items: center; flex-direction: column; font-size: 120%; margin-top: 200px; "}
+## Thank You!! {background-image="https://images.unsplash.com/photo-1576063513230-e65b5ed1a3a0?q=80&w=2013&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" background-size="contain" background-opacity="0.5"}
+:::

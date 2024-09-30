@@ -1,0 +1,273 @@
+---
+title: "Understanding Health Inequities in Myanmar through DHS data"
+author: Wai Linn
+format: 
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    
+---
+
+```{r}
+# loading required packages
+
+library(tidyverse)
+library(shiny)
+library(bslib)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(modelsummary)
+```
+
+
+```{r}
+# Creating dataframe for mapping
+
+world <- ne_countries(returnclass = "sf")
+myanmar <- ne_states(country = "Myanmar", returnclass = "sf")
+```
+
+## Myanmar located in Southeast Asia
+
+Home to longest civil war in the world from 1962 to present day (Why...?)
+
+```{r}
+world_mm_map <- world %>%
+  mutate(myanmar = case_when(
+    name_long == "Myanmar" ~ 1,
+    TRUE ~ 0
+  )) %>% 
+  ggplot(aes(fill = factor(myanmar))) +
+  geom_sf() +
+  scale_fill_manual(values = c("0" = "gray", "1" = "red")) + 
+  theme_minimal() +
+  theme(legend.position = "none")
+
+world_mm_map
+```
+
+
+```{r}
+# Administratively, 7 states and 7 regions
+
+mm_map1 <- myanmar %>% 
+  ggplot()+
+  geom_sf(aes(fill = name, color = name)) +
+  geom_sf_text(aes(label = name), size = 2.5) +
+  theme_void() +
+  theme(legend.position = "none")
+
+```
+
+
+```{r}
+# Dividing into two groups
+
+region_colors <- c(
+  "Ayeyarwady" = "green",
+  "Bago" = "green",
+  "Chin" = "red",
+  "Kachin" = "red",
+  "Kayah" = "red",
+  "Kayin" = "red",
+  "Magway" = "green",
+  "Mandalay" = "green",
+  "Mon" = "red",
+  "Rakhine" = "red",
+  "Sagaing" = "green",
+  "Shan" = "red",
+  "Tanintharyi" = "green",
+  "Yangon" = "green"
+)
+
+mm_map2 <- myanmar %>% 
+  mutate(ethnicity = ifelse(name %in% c("Kachin", "Kayah", "Kayin", "Kachin", "Chin", "Mon", "Rakhine", "Shan"), "State", "Region")) %>% 
+  ggplot() +
+  geom_sf(data = myanmar, aes(fill = name)) + 
+  scale_fill_manual(values = region_colors) + 
+  geom_sf_text(aes(label = ethnicity), size = 2) +
+  theme_void() +
+  theme(legend.position = "none")
+```
+
+## Demographics
+
+::: aside
+- 52 million population with ~ 135 ethnic groups. Has 7 states and 7 regions.
+- "Bamar" in regions and ">100 ethnic groups" in states
+:::
+
+
+
+```{r}
+mm_map1
+```
+
+## Ethnicity
+
+
+::: aside
+- 52 million population with ~ 135 ethnic groups. Has 7 states and 7 regions.
+- "Bamar" in regions and ">100 ethnic groups" in states
+:::
+
+```{r}
+mm_map2
+```
+
+
+## Research Question 
+
+::: {.incremental}
+- How do demographic characteristics influence contraceptive knowledge, practices and unmet need among currently married women aged 15-49 in Myanmar?
+
+- Are there any contraceptive disparities between States and Regions?
+
+:::
+
+
+## Dataset
+
+
+DHS Myanmar dataset 2016 
+
+- 7870 observations and 26 variables
+- All participants are currently married women aged 15-49
+
+
+Key variables: 
+
+- Demographic characteristics: age (5-yr group), location (region/state), residence (urban/rural), education, wealth index
+
+- Outcome: contraceptive knowledge, practice, unmet need
+
+
+```{r}
+# Required packages for survey weight calculation
+
+library(haven)
+library(survey)
+library(patchwork)
+```
+
+```{r}
+
+# DHS Myanmar dataset 2016
+
+dhs_mm <- read_csv(here::here("data", "dhs_mm.csv"))
+```
+
+
+
+```{r}
+# Variable selection based on research question
+
+dhs_select <- dhs_mm %>% 
+  select(caseid, v005, v013, v021, v023, v024, v025, v106, v190, v301, v312, v313, v502, v626a)
+```
+
+
+```{r}
+# Creating new and modifying existing variables  
+
+dhs_final <- dhs_select %>% 
+  mutate(wt = v005/1000000,
+         psu = v021,
+         strat = v023) %>% # sampling weight
+  filter(v502 == 1) %>% # current married women
+  mutate(
+    age = case_when(
+      v013 == 1 ~ "15-19",
+      v013 == 2 ~ "20-24",
+      v013 == 3 ~ "25-29",
+      v013 == 4 ~ "30-34",
+      v013 == 5 ~ "35-39",
+      v013 == 6 ~ "40-44",
+      v013 == 7 ~ "45-49"
+    ),
+    location = case_when(
+      v024 == 1 ~ "Kachin",
+      v024 == 2 ~ "Kayah",
+      v024 == 3 ~ "Kayin",
+      v024 == 4 ~ "Chin",
+      v024 == 5 ~ "Sagaing",
+      v024 == 6 ~ "Tanintharyi",
+      v024 == 7 ~ "Bago",
+      v024 == 8 ~ "Magway",
+      v024 == 9 ~ "Mandalay",
+      v024 == 10 ~ "Mon",
+      v024 == 11 ~ "Rakhine",
+      v024 == 12 ~ "Yangon",
+      v024 == 13 ~ "Shan",
+      v024 == 14 ~ "Ayeyarwady",
+      v024 == 15 ~ "Naypyitaw"
+    ),
+    residence = case_when(
+      v025 == 1 ~ "urban",
+      v025 == 2 ~ "rural"
+    ),
+    education = case_when(
+      v106 == 0 ~ "no education",
+      v106 == 1 ~ "primary",
+      v106 == 2 ~ "secondary",
+      v106 == 3 ~ "higher"
+    ),
+    wealth_index = case_when(
+      v190 == 1 ~ "poorest",
+      v190 == 2 ~ "poorer",
+      v190 == 3 ~ "middle",
+      v190 == 4 ~ "richer",
+      v190 == 5 ~ "richest"
+    ),
+    method = case_when(
+      v312 == 0 ~ "no_use",
+      v312 == 1 ~ "pill",
+      v312 == 2 ~ "IUD",
+      v312 == 3 ~ "injection",
+      v312 == 5 ~ "male_condom",
+      v312 == 6 ~ "female_sterilization",
+      v312 == 7 ~ "male_sterilization",
+      v312 == 8 ~ "periodic_abstinence",
+      v312 == 9 ~ "withdrawal",
+      v312 == 10 ~ "other_traditional",
+      v312 == 11 ~ "implant",
+      v312 == 13 ~ "lac_amenorrhoea",
+      v312 == 17 ~ "other_modern")
+  ) %>% 
+  mutate(
+    knowledge = ifelse(v301 %in% c(3,2), 1, 0),
+    practice = ifelse(v313 %in% c(3,2,1), 1,0),
+    location_bi = ifelse(v024 %in% c(1, 2, 3, 4, 10, 11 & 13), 0, 1)
+  ) %>% 
+  mutate(
+    location_bi = case_when(
+      location_bi == 0 ~ "state",
+      location_bi == 1 ~ "region"
+    )
+  ) %>% 
+  mutate(knowledge = factor(knowledge),
+         practice = factor(practice))
+```
+
+
+## Key Messages
+
+::: {.incremental}
+
+1. Is it true that there are health inequities between states and regions? 
+
+- The answer is __YES__.
+
+2. Why and How can we address this issue? 
+
+- I suppose this is what the scholars have to find out.
+
+3. __Global health__ is an area for study, research, and practice that places a priority on improving health and achieving _equity in health_ for all people worldwide.
+
+:::
+
+
+
+
